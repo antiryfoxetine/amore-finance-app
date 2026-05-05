@@ -181,47 +181,63 @@ elif menu == "Data Entry":
 
     with tab_rent:
         st.write("### Record Tenant Rent")
+        guest_names = tenants['guest_name'].unique().tolist() if not tenants.empty else []
+        selected_guest = st.selectbox("Select Tenant Name", guest_names) if guest_names else st.text_input("Tenant Name")
+        
+        # Auto-lookup unit based on selection
+        auto_unit = ""
+        if not tenants.empty and selected_guest in guest_names:
+            auto_unit = tenants[tenants['guest_name'] == selected_guest]['unit_room'].iloc[0]
+
         with st.form("rent_form", clear_on_submit=True):
-            guest_names = tenants['guest_name'].unique().tolist() if not tenants.empty else []
-            selected_guest = st.selectbox("Tenant", guest_names) if guest_names else st.text_input("Tenant Name")
-            unit = st.text_input("Unit/Room", key="rent_unit")
+            unit = st.text_input("Unit/Room", value=auto_unit, key="rent_unit")
             r_amount = st.number_input("Monthly Rent Amount (₱)", min_value=0.0, step=500.0)
             r_date = st.date_input("Payment Date", key="rent_date")
             
             if st.form_submit_button("Save Rent Payment"):
-                if r_amount > 0:
+                if r_amount > 0 and selected_guest:
                     conn = get_connection()
                     if conn:
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
                                      (selected_guest, unit, 'Rent', 'Monthly Rent', r_amount, r_date))
                         conn.commit(); conn.close()
-                        st.success("Rent recorded.")
+                        st.success(f"Rent recorded for {selected_guest} (Unit {unit}).")
                         st.rerun()
+                else:
+                    st.warning("Please ensure tenant name is provided and amount is greater than 0.")
 
     with tab_util:
         st.write("### Record Sub-meter Payments")
+        guest_names = tenants['guest_name'].unique().tolist() if not tenants.empty else []
+        
+        col_select, col_empty = st.columns([1, 1])
+        selected_guest_u = col_select.selectbox("Select Tenant Name", guest_names, key="u_guest_sel") if guest_names else col_select.text_input("Tenant Name", key="u_guest_text")
+        
+        # Auto-lookup unit based on selection
+        auto_unit_u = ""
+        if not tenants.empty and selected_guest_u in guest_names:
+            auto_unit_u = tenants[tenants['guest_name'] == selected_guest_u]['unit_room'].iloc[0]
+
         with st.form("util_payment_form", clear_on_submit=True):
-            guest_names = tenants['guest_name'].unique().tolist() if not tenants.empty else []
-            col1, col2 = st.columns(2)
-            selected_guest = col1.selectbox("Tenant", guest_names, key="u_guest") if guest_names else col1.text_input("Tenant Name", key="u_guest_text")
-            unit = col2.text_input("Unit/Room", key="u_unit")
-            
+            unit_u = st.text_input("Unit/Room", value=auto_unit_u, key="u_unit")
             p_col1, p_col2 = st.columns(2)
             p_type = p_col1.selectbox("Utility Type", ["Electricity (Sub-meter)", "Water (Sub-meter)", "Internet", "Maintenance Fee"])
             p_amount = p_col2.number_input("Amount Collected (₱)", min_value=0.0, step=50.0)
             p_date = st.date_input("Collection Date", key="u_date")
             
             if st.form_submit_button("Save Utility Payment"):
-                if p_amount > 0:
+                if p_amount > 0 and selected_guest_u:
                     conn = get_connection()
                     if conn:
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
-                                     (selected_guest, unit, 'Utility', p_type, p_amount, p_date))
+                                     (selected_guest_u, unit_u, 'Utility', p_type, p_amount, p_date))
                         conn.commit(); conn.close()
-                        st.success("Utility payment saved.")
+                        st.success(f"{p_type} payment saved for {selected_guest_u}.")
                         st.rerun()
+                else:
+                    st.warning("Please ensure tenant name is provided and amount is greater than 0.")
 
 # --- UTILITY RECONCILIATION ---
 elif menu == "Utility Reconciliation":
@@ -245,4 +261,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear()
         st.rerun()
 
-st.caption("Amore Financial Cloud v1.5 | Segregated Rent & Utility Tracking")
+st.caption("Amore Financial Cloud v1.6 | Auto-sync Unit Numbers")
