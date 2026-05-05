@@ -162,6 +162,10 @@ if menu == "Dashboard":
 elif menu == "Data Entry":
     tab_exp, tab_rent, tab_util = st.tabs(["⚡ Main Bills (Amore Pays)", "🏠 Rent Collection", "🔢 Meter Payments (Tenants)"])
     
+    # Pre-filtering for the dropdowns
+    active_residents = tenants[tenants['status'] != 'Checked-out'] if not tenants.empty else pd.DataFrame()
+    guest_names = active_residents['guest_name'].unique().tolist() if not active_residents.empty else []
+
     with tab_exp:
         st.write("### Record Master Utility Bills")
         with st.form("expense_form", clear_on_submit=True):
@@ -181,53 +185,52 @@ elif menu == "Data Entry":
 
     with tab_rent:
         st.write("### Record Tenant Rent")
-        guest_names = tenants['guest_name'].unique().tolist() if not tenants.empty else []
-        selected_guest = st.selectbox("Select Tenant Name", guest_names) if guest_names else st.text_input("Tenant Name")
+        selected_guest = st.selectbox("Select Tenant Name", ["-- Select Guest --"] + guest_names, key="rent_name_select")
         
-        # Auto-lookup unit based on selection
         auto_unit = ""
-        if not tenants.empty and selected_guest in guest_names:
-            auto_unit = tenants[tenants['guest_name'] == selected_guest]['unit_room'].iloc[0]
+        if selected_guest != "-- Select Guest --":
+            match = active_residents[active_residents['guest_name'] == selected_guest]
+            if not match.empty:
+                auto_unit = str(match.iloc[-1]['unit_room'])
 
+        # We change the key dynamically using selected_guest to force the form to update its value
         with st.form("rent_form", clear_on_submit=True):
-            unit = st.text_input("Unit/Room", value=auto_unit, key="rent_unit")
+            unit = st.text_input("Unit/Room", value=auto_unit, key=f"rent_unit_{selected_guest}")
             r_amount = st.number_input("Monthly Rent Amount (₱)", min_value=0.0, step=500.0)
-            r_date = st.date_input("Payment Date", key="rent_date")
+            r_date = st.date_input("Payment Date")
             
             if st.form_submit_button("Save Rent Payment"):
-                if r_amount > 0 and selected_guest:
+                if r_amount > 0 and selected_guest != "-- Select Guest --":
                     conn = get_connection()
                     if conn:
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
                                      (selected_guest, unit, 'Rent', 'Monthly Rent', r_amount, r_date))
                         conn.commit(); conn.close()
-                        st.success(f"Rent recorded for {selected_guest} (Unit {unit}).")
+                        st.success(f"Rent recorded for {selected_guest}.")
                         st.rerun()
                 else:
-                    st.warning("Please ensure tenant name is provided and amount is greater than 0.")
+                    st.warning("Please select a guest and enter an amount.")
 
     with tab_util:
         st.write("### Record Sub-meter Payments")
-        guest_names = tenants['guest_name'].unique().tolist() if not tenants.empty else []
+        selected_guest_u = st.selectbox("Select Tenant Name", ["-- Select Guest --"] + guest_names, key="util_name_select")
         
-        col_select, col_empty = st.columns([1, 1])
-        selected_guest_u = col_select.selectbox("Select Tenant Name", guest_names, key="u_guest_sel") if guest_names else col_select.text_input("Tenant Name", key="u_guest_text")
-        
-        # Auto-lookup unit based on selection
         auto_unit_u = ""
-        if not tenants.empty and selected_guest_u in guest_names:
-            auto_unit_u = tenants[tenants['guest_name'] == selected_guest_u]['unit_room'].iloc[0]
+        if selected_guest_u != "-- Select Guest --":
+            match_u = active_residents[active_residents['guest_name'] == selected_guest_u]
+            if not match_u.empty:
+                auto_unit_u = str(match_u.iloc[-1]['unit_room'])
 
         with st.form("util_payment_form", clear_on_submit=True):
-            unit_u = st.text_input("Unit/Room", value=auto_unit_u, key="u_unit")
+            unit_u = st.text_input("Unit/Room", value=auto_unit_u, key=f"util_unit_{selected_guest_u}")
             p_col1, p_col2 = st.columns(2)
             p_type = p_col1.selectbox("Utility Type", ["Electricity (Sub-meter)", "Water (Sub-meter)", "Internet", "Maintenance Fee"])
             p_amount = p_col2.number_input("Amount Collected (₱)", min_value=0.0, step=50.0)
-            p_date = st.date_input("Collection Date", key="u_date")
+            p_date = st.date_input("Collection Date")
             
             if st.form_submit_button("Save Utility Payment"):
-                if p_amount > 0 and selected_guest_u:
+                if p_amount > 0 and selected_guest_u != "-- Select Guest --":
                     conn = get_connection()
                     if conn:
                         cursor = conn.cursor()
@@ -237,7 +240,7 @@ elif menu == "Data Entry":
                         st.success(f"{p_type} payment saved for {selected_guest_u}.")
                         st.rerun()
                 else:
-                    st.warning("Please ensure tenant name is provided and amount is greater than 0.")
+                    st.warning("Please select a guest and enter an amount.")
 
 # --- UTILITY RECONCILIATION ---
 elif menu == "Utility Reconciliation":
@@ -261,4 +264,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear()
         st.rerun()
 
-st.caption("Amore Financial Cloud v1.6 | Auto-sync Unit Numbers")
+st.caption("Amore Financial Cloud v1.7 | Instant Unit Sync")
