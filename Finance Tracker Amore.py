@@ -32,7 +32,6 @@ def init_db():
     conn = get_connection()
     if conn:
         cursor = conn.cursor()
-        # Table for Amore's main expenses (Main Meter Bills, Salaries, etc.)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,14 +41,13 @@ def init_db():
                 description TEXT
             )
         """)
-        # Table for all payments made by tenants
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenant_payments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 guest_name VARCHAR(255),
                 unit_room VARCHAR(50),
-                payment_type VARCHAR(100), -- 'Rent' or 'Utility'
-                sub_category VARCHAR(100), -- 'Electricity', 'Water', 'Internet', etc.
+                payment_type VARCHAR(100), 
+                sub_category VARCHAR(100), 
                 amount DECIMAL(10,2),
                 payment_date DATE
             )
@@ -88,8 +86,6 @@ st.markdown("""
     <style>
     .main-header { background-color: #507d00; padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px; }
     .stMetric { background-color: white; padding: 15px; border-radius: 12px; border: 1px solid #f0f2f6; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { background-color: #f8fafc; border-radius: 8px 8px 0 0; padding: 10px 20px; }
     </style>
     <div class="main-header">
         <h1 style="margin:0;">AMORE FINANCIAL TRACKER</h1>
@@ -112,6 +108,18 @@ def fetch_data():
 
 tenants, expenses, tenant_payments = fetch_data()
 
+# Chart Config for Downloads
+CHART_CONFIG = {
+    'displayModeBar': True,
+    'toImageButtonOptions': {
+        'format': 'png',
+        'filename': 'amore_financial_report',
+        'height': 600,
+        'width': 1000,
+        'scale': 2
+    }
+}
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/619/619034.png", width=100)
@@ -123,10 +131,8 @@ with st.sidebar:
 
 # --- DASHBOARD ---
 if menu == "Dashboard":
-    # Revenue calculations
     rent_total = tenant_payments[tenant_payments['payment_type'] == 'Rent']['amount'].sum() if not tenant_payments.empty else 0
     util_total = tenant_payments[tenant_payments['payment_type'] == 'Utility']['amount'].sum() if not tenant_payments.empty else 0
-    
     total_revenue = rent_total + util_total
     total_expenses = expenses['amount'].sum() if not expenses.empty else 0
     net_profit = total_revenue - total_expenses
@@ -141,86 +147,44 @@ if menu == "Dashboard":
     st.divider()
     
     if tenants.empty and tenant_payments.empty and expenses.empty:
-        st.info("No data yet. Head over to the 'Data Entry' tab to get started.")
+        st.info("Database is empty. Please enter data in the 'Data Entry' tab.")
     else:
-        # Financial Performance Graph (Time Series)
         st.subheader("📈 Financial Performance Trend")
-        
-        # Prepare data for time series
         if not tenant_payments.empty or not expenses.empty:
             rev_ts = tenant_payments.copy()
             rev_ts['date'] = pd.to_datetime(rev_ts['payment_date']).dt.to_period('M').dt.to_timestamp()
             rev_monthly = rev_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Revenue'})
-            
             exp_ts = expenses.copy()
             exp_ts['date'] = pd.to_datetime(exp_ts['bill_date']).dt.to_period('M').dt.to_timestamp()
             exp_monthly = exp_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Expenses'})
-            
-            performance_df = pd.merge(rev_monthly, exp_monthly, on='date', how='outer').fillna(0)
-            performance_df = performance_df.sort_values('date')
+            performance_df = pd.merge(rev_monthly, exp_monthly, on='date', how='outer').fillna(0).sort_values('date')
             
             fig_perf = px.line(performance_df, x='date', y=['Revenue', 'Expenses'], 
-                               labels={'value': 'Amount (₱)', 'date': 'Month'},
                                color_discrete_map={'Revenue': '#507d00', 'Expenses': '#f44336'},
                                markers=True)
-            fig_perf.update_layout(hovermode="x unified")
-            st.plotly_chart(fig_perf, use_container_width=True)
-        else:
-            st.info("Not enough data to generate trend graph.")
-
+            st.plotly_chart(fig_perf, use_container_width=True, config=CHART_CONFIG)
+        
         st.divider()
-
-        # Top Row: Charts
         col_rev, col_exp_pie = st.columns([1, 1])
         with col_rev:
             st.subheader("📊 Revenue Composition")
-            rev_data = pd.DataFrame({
-                'Source': ['Base Rent', 'Utilities'],
-                'Amount': [rent_total, util_total]
-            })
-            fig_rev = px.bar(rev_data, x='Source', y='Amount', color='Source', 
-                             color_discrete_map={'Base Rent': '#507d00', 'Utilities': '#ffc107'})
-            st.plotly_chart(fig_rev, use_container_width=True)
+            rev_data = pd.DataFrame({'Source': ['Base Rent', 'Utilities'], 'Amount': [rent_total, util_total]})
+            fig_rev = px.bar(rev_data, x='Source', y='Amount', color='Source', color_discrete_map={'Base Rent': '#507d00', 'Utilities': '#ffc107'})
+            st.plotly_chart(fig_rev, use_container_width=True, config=CHART_CONFIG)
             
         with col_exp_pie:
             st.subheader("🥧 Expense Breakdown")
             if not expenses.empty:
-                fig_pie = px.pie(expenses, values='amount', names='category', hole=0.4, 
-                                 color_discrete_sequence=px.colors.qualitative.Safe)
-                st.plotly_chart(fig_pie, use_container_width=True)
-            else:
-                st.info("No expenses recorded yet to show breakdown.")
-
-        st.divider()
-
-        # Bottom Row: Tables
-        col_list, col_bill_list = st.columns([1, 1])
-        with col_list:
-            st.subheader("📋 Latest Tenant Payments")
-            if not tenant_payments.empty:
-                st.dataframe(tenant_payments[['guest_name', 'sub_category', 'amount', 'payment_date']].tail(5).sort_values('payment_date', ascending=False), 
-                             use_container_width=True, hide_index=True)
-            else:
-                st.caption("Waiting for payment records...")
-
-        with col_bill_list:
-            st.subheader("💸 Recent Main Bills (Expenses)")
-            if not expenses.empty:
-                st.dataframe(expenses[['category', 'amount', 'bill_date']].tail(5).sort_values('bill_date', ascending=False),
-                             use_container_width=True, hide_index=True)
-            else:
-                st.caption("Waiting for bill records...")
+                fig_pie = px.pie(expenses, values='amount', names='category', hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
+                st.plotly_chart(fig_pie, use_container_width=True, config=CHART_CONFIG)
 
 # --- DATA ENTRY ---
 elif menu == "Data Entry":
-    tab_exp, tab_rent, tab_util = st.tabs(["⚡ Main Bills (Amore Pays)", "🏠 Rent Collection", "🔢 Meter Payments (Tenants)"])
-    
-    # Pre-filtering for the dropdowns
+    tab_exp, tab_rent, tab_util = st.tabs(["⚡ Main Bills", "🏠 Rent Collection", "🔢 Meter Payments"])
     active_residents = tenants[tenants['status'] != 'Checked-out'] if not tenants.empty else pd.DataFrame()
     guest_names = active_residents['guest_name'].unique().tolist() if not active_residents.empty else []
 
     with tab_exp:
-        st.write("### Record Master Utility Bills")
         with st.form("expense_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             category = col1.selectbox("Utility Type", ["Electricity", "Water", "Internet", "Maintenance", "Staff Salary"])
@@ -233,24 +197,16 @@ elif menu == "Data Entry":
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO expenses (category, amount, bill_date) VALUES (%s, %s, %s)", (category, amount, bill_date))
                         conn.commit(); conn.close()
-                        st.success("Main bill successfully saved to cloud.")
+                        st.success("Main bill saved.")
                         st.rerun()
 
     with tab_rent:
-        st.write("### Record Tenant Rent")
         selected_guest = st.selectbox("Select Tenant Name", ["-- Select Guest --"] + guest_names, key="rent_name_select")
-        
-        auto_unit = ""
-        if selected_guest != "-- Select Guest --":
-            match = active_residents[active_residents['guest_name'] == selected_guest]
-            if not match.empty:
-                auto_unit = str(match.iloc[-1]['unit_room'])
-
+        auto_unit = str(active_residents[active_residents['guest_name'] == selected_guest].iloc[-1]['unit_room']) if selected_guest != "-- Select Guest --" else ""
         with st.form("rent_form", clear_on_submit=True):
             unit = st.text_input("Unit/Room", value=auto_unit, key=f"rent_unit_{selected_guest}")
             r_amount = st.number_input("Monthly Rent Amount (₱)", min_value=0.0, step=500.0)
             r_date = st.date_input("Payment Date")
-            
             if st.form_submit_button("Save Rent Payment"):
                 if r_amount > 0 and selected_guest != "-- Select Guest --":
                     conn = get_connection()
@@ -259,28 +215,18 @@ elif menu == "Data Entry":
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
                                      (selected_guest, unit, 'Rent', 'Monthly Rent', r_amount, r_date))
                         conn.commit(); conn.close()
-                        st.success(f"Rent recorded for {selected_guest}.")
+                        st.success("Rent recorded.")
                         st.rerun()
-                else:
-                    st.warning("Please choose a guest and enter the amount.")
 
     with tab_util:
-        st.write("### Record Sub-meter Payments")
         selected_guest_u = st.selectbox("Select Tenant Name", ["-- Select Guest --"] + guest_names, key="util_name_select")
-        
-        auto_unit_u = ""
-        if selected_guest_u != "-- Select Guest --":
-            match_u = active_residents[active_residents['guest_name'] == selected_guest_u]
-            if not match_u.empty:
-                auto_unit_u = str(match_u.iloc[-1]['unit_room'])
-
+        auto_unit_u = str(active_residents[active_residents['guest_name'] == selected_guest_u].iloc[-1]['unit_room']) if selected_guest_u != "-- Select Guest --" else ""
         with st.form("util_payment_form", clear_on_submit=True):
             unit_u = st.text_input("Unit/Room", value=auto_unit_u, key=f"util_unit_{selected_guest_u}")
             p_col1, p_col2 = st.columns(2)
             p_type = p_col1.selectbox("Utility Type", ["Electricity (Sub-meter)", "Water (Sub-meter)", "Internet", "Maintenance Fee"])
             p_amount = p_col2.number_input("Amount Collected (₱)", min_value=0.0, step=50.0)
             p_date = st.date_input("Collection Date")
-            
             if st.form_submit_button("Save Utility Payment"):
                 if p_amount > 0 and selected_guest_u != "-- Select Guest --":
                     conn = get_connection()
@@ -289,85 +235,59 @@ elif menu == "Data Entry":
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
                                      (selected_guest_u, unit_u, 'Utility', p_type, p_amount, p_date))
                         conn.commit(); conn.close()
-                        st.success(f"Utility payment saved for {selected_guest_u}.")
+                        st.success("Utility payment saved.")
                         st.rerun()
-                else:
-                    st.warning("Please choose a guest and enter the amount.")
-
-    # Recent Entry Log for verification
-    st.divider()
-    st.subheader("📝 Recent Ledger History")
-    if not tenant_payments.empty:
-        st.dataframe(tenant_payments.sort_values('payment_date', ascending=False).head(10), 
-                     use_container_width=True, hide_index=True)
-    else:
-        st.info("No payment records found.")
-
-# --- UTILITY RECONCILIATION ---
-elif menu == "Utility Reconciliation":
-    st.subheader("⚖️ Master Meter vs. Individual Meter Collections")
-    u_type = st.selectbox("Select Utility to Reconcile", ["Electricity", "Water", "Internet"])
-    
-    paid = expenses[expenses['category'] == u_type]['amount'].sum() if not expenses.empty else 0
-    search_term = u_type
-    collected = tenant_payments[(tenant_payments['payment_type'] == 'Utility') & (tenant_payments['sub_category'].str.contains(search_term, case=False))]['amount'].sum() if not tenant_payments.empty else 0
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Main Bill Total", f"₱{paid:,.2f}")
-    c2.metric("Total from Sub-meters", f"₱{collected:,.2f}")
-    
-    gap = collected - paid
-    delta_color = "normal" if gap >= 0 else "inverse"
-    c3.metric("Profit/Loss Gap", f"₱{gap:,.2f}", delta=float(gap), delta_color=delta_color)
-    
-    if paid > 0:
-        st.write("### Recovery Progress Bar")
-        st.progress(min(collected / paid, 1.0))
-        st.caption(f"You have recovered {(collected/paid)*100:.1f}% of the building's {u_type} cost.")
 
 # --- REPORTS & EXPORT ---
 elif menu == "Reports & Export":
-    st.subheader("📥 Export Financial Records")
-    st.write("Download your data as CSV files for offline management or accounting.")
+    st.subheader("📥 Data & Visual Reports")
     
-    col_exp1, col_exp2 = st.columns(2)
+    st.markdown("""
+        <div style="background-color: #f0f7f0; padding: 20px; border-radius: 12px; border: 1px solid #cce2cc;">
+            <h4 style="color: #507d00; margin-top: 0;">📸 How to Download Graphs</h4>
+            <p style="font-size: 14px; color: #555;">Hover your mouse over any graph. A menu will appear in the top-right corner. Click the <b>Camera Icon</b> to save the graph as a PNG image for your records.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
-    with col_exp1:
-        st.write("#### 💰 Tenant Payments (Revenue)")
-        if not tenant_payments.empty:
-            csv_payments = tenant_payments.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download Payment Records",
-                data=csv_payments,
-                file_name=f"amore_tenant_payments_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime='text/csv',
-                use_container_width=True
-            )
-            st.dataframe(tenant_payments.head(5), use_container_width=True)
-        else:
-            st.info("No payment records available to export.")
-            
-    with col_exp2:
-        st.write("#### 💸 Main Bills (Expenses)")
-        if not expenses.empty:
-            csv_expenses = expenses.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download Expense Records",
-                data=csv_expenses,
-                file_name=f"amore_expenses_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime='text/csv',
-                use_container_width=True
-            )
-            st.dataframe(expenses.head(5), use_container_width=True)
-        else:
-            st.info("No expense records available to export.")
+    st.divider()
+    
+    if not tenant_payments.empty or not expenses.empty:
+        # Master Ledger Export
+        df_in = tenant_payments[['payment_date', 'guest_name', 'sub_category', 'amount']].copy()
+        df_in['Type'] = 'Revenue (In)'
+        df_in.columns = ['Date', 'Entity', 'Category', 'Amount', 'Type']
+        df_out = expenses[['bill_date', 'category', 'amount']].copy()
+        df_out['Type'] = 'Expense (Out)'
+        df_out['Entity'] = 'Main Bill'
+        df_out.columns = ['Date', 'Category', 'Amount', 'Type', 'Entity']
+        master_df = pd.concat([df_in, df_out]).sort_values('Date', ascending=False)
+        
+        csv_master = master_df.to_csv(index=False).encode('utf-8')
+        st.download_button("✨ DOWNLOAD UNIFIED MASTER LEDGER (CSV)", data=csv_master, file_name=f"amore_master_ledger_{datetime.now().strftime('%Y%m%d')}.csv", mime='text/csv', use_container_width=True)
+        st.dataframe(master_df.head(10), use_container_width=True, hide_index=True)
+    else:
+        st.info("No data available to export.")
+
+# --- UTILITY RECONCILIATION ---
+elif menu == "Utility Reconciliation":
+    st.subheader("⚖️ Reconciliation")
+    u_type = st.selectbox("Select Utility", ["Electricity", "Water", "Internet"])
+    paid = expenses[expenses['category'] == u_type]['amount'].sum() if not expenses.empty else 0
+    collected = tenant_payments[(tenant_payments['payment_type'] == 'Utility') & (tenant_payments['sub_category'].str.contains(u_type, case=False))]['amount'].sum() if not tenant_payments.empty else 0
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Main Bill", f"₱{paid:,.2f}")
+    c2.metric("Sub-meters", f"₱{collected:,.2f}")
+    gap = collected - paid
+    c3.metric("Gap", f"₱{gap:,.2f}", delta=float(gap), delta_color="normal" if gap >= 0 else "inverse")
+    if paid > 0:
+        st.progress(min(collected / paid, 1.0))
 
 # --- SETTINGS ---
 elif menu == "Sync Settings":
-    st.subheader("⚙️ Cloud Synchronization")
-    if st.button("Manually Refresh Data"):
+    st.subheader("⚙️ Settings")
+    if st.button("Refresh Data"):
         st.cache_data.clear()
         st.rerun()
-    st.info("The app automatically syncs with your Aiven MySQL database.")
 
-st.caption("Amore Financial Cloud v2.0 | Integrated Reports & Export")
+st.caption("Amore Financial Cloud v2.2 | Downloadable Visuals Enabled")
