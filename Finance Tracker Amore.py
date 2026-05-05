@@ -88,6 +88,8 @@ st.markdown("""
     <style>
     .main-header { background-color: #507d00; padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px; }
     .stMetric { background-color: white; padding: 15px; border-radius: 12px; border: 1px solid #f0f2f6; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { background-color: #f8fafc; border-radius: 8px 8px 0 0; padding: 10px 20px; }
     </style>
     <div class="main-header">
         <h1 style="margin:0;">AMORE FINANCIAL TRACKER</h1>
@@ -121,7 +123,7 @@ with st.sidebar:
 
 # --- DASHBOARD ---
 if menu == "Dashboard":
-    # Splitting Revenue
+    # Revenue calculations
     rent_total = tenant_payments[tenant_payments['payment_type'] == 'Rent']['amount'].sum() if not tenant_payments.empty else 0
     util_total = tenant_payments[tenant_payments['payment_type'] == 'Utility']['amount'].sum() if not tenant_payments.empty else 0
     
@@ -133,16 +135,17 @@ if menu == "Dashboard":
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Rent Collected", f"₱{rent_total:,.2f}")
     m2.metric("Utility Collected", f"₱{util_total:,.2f}")
-    m3.metric("Net Profit", f"₱{net_profit:,.2f}")
-    m4.metric("Active Units", active_units)
+    m3.metric("Total Expenses", f"₱{total_expenses:,.2f}")
+    m4.metric("Net Profit", f"₱{net_profit:,.2f}", delta=float(net_profit))
 
     st.divider()
     
     if tenants.empty and tenant_payments.empty and expenses.empty:
-        st.info("Database is empty. Please enter data in the 'Data Entry' tab.")
+        st.info("No data yet. Head over to the 'Data Entry' tab to get started.")
     else:
-        col_left, col_right = st.columns([2, 1])
-        with col_left:
+        # Top Row: Charts
+        col_rev, col_exp_pie = st.columns([1, 1])
+        with col_rev:
             st.subheader("📊 Revenue Composition")
             rev_data = pd.DataFrame({
                 'Source': ['Base Rent', 'Utilities'],
@@ -152,11 +155,34 @@ if menu == "Dashboard":
                              color_discrete_map={'Base Rent': '#507d00', 'Utilities': '#ffc107'})
             st.plotly_chart(fig_rev, use_container_width=True)
             
-        with col_right:
-            st.subheader("📋 Recent Payments")
+        with col_exp_pie:
+            st.subheader("🥧 Expense Breakdown")
+            if not expenses.empty:
+                fig_pie = px.pie(expenses, values='amount', names='category', hole=0.4, 
+                                 color_discrete_sequence=px.colors.qualitative.Safe)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("No expenses recorded yet to show breakdown.")
+
+        st.divider()
+
+        # Bottom Row: Tables
+        col_list, col_bill_list = st.columns([1, 1])
+        with col_list:
+            st.subheader("📋 Latest Tenant Payments")
             if not tenant_payments.empty:
-                st.dataframe(tenant_payments[['guest_name', 'payment_type', 'amount', 'payment_date']].tail(5), 
+                st.dataframe(tenant_payments[['guest_name', 'sub_category', 'amount', 'payment_date']].tail(5).sort_values('payment_date', ascending=False), 
                              use_container_width=True, hide_index=True)
+            else:
+                st.caption("Waiting for payment records...")
+
+        with col_bill_list:
+            st.subheader("💸 Recent Main Bills (Expenses)")
+            if not expenses.empty:
+                st.dataframe(expenses[['category', 'amount', 'bill_date']].tail(5).sort_values('bill_date', ascending=False),
+                             use_container_width=True, hide_index=True)
+            else:
+                st.caption("Waiting for bill records...")
 
 # --- DATA ENTRY ---
 elif menu == "Data Entry":
@@ -180,7 +206,7 @@ elif menu == "Data Entry":
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO expenses (category, amount, bill_date) VALUES (%s, %s, %s)", (category, amount, bill_date))
                         conn.commit(); conn.close()
-                        st.success("Main bill saved.")
+                        st.success("Main bill successfully saved to cloud.")
                         st.rerun()
 
     with tab_rent:
@@ -193,7 +219,6 @@ elif menu == "Data Entry":
             if not match.empty:
                 auto_unit = str(match.iloc[-1]['unit_room'])
 
-        # We change the key dynamically using selected_guest to force the form to update its value
         with st.form("rent_form", clear_on_submit=True):
             unit = st.text_input("Unit/Room", value=auto_unit, key=f"rent_unit_{selected_guest}")
             r_amount = st.number_input("Monthly Rent Amount (₱)", min_value=0.0, step=500.0)
@@ -210,7 +235,7 @@ elif menu == "Data Entry":
                         st.success(f"Rent recorded for {selected_guest}.")
                         st.rerun()
                 else:
-                    st.warning("Please select a guest and enter an amount.")
+                    st.warning("Please choose a guest and enter the amount.")
 
     with tab_util:
         st.write("### Record Sub-meter Payments")
@@ -237,10 +262,19 @@ elif menu == "Data Entry":
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
                                      (selected_guest_u, unit_u, 'Utility', p_type, p_amount, p_date))
                         conn.commit(); conn.close()
-                        st.success(f"{p_type} payment saved for {selected_guest_u}.")
+                        st.success(f"Utility payment saved for {selected_guest_u}.")
                         st.rerun()
                 else:
-                    st.warning("Please select a guest and enter an amount.")
+                    st.warning("Please choose a guest and enter the amount.")
+
+    # Recent Entry Log for verification
+    st.divider()
+    st.subheader("📝 Recent Ledger History")
+    if not tenant_payments.empty:
+        st.dataframe(tenant_payments.sort_values('payment_date', ascending=False).head(10), 
+                     use_container_width=True, hide_index=True)
+    else:
+        st.info("No payment records found.")
 
 # --- UTILITY RECONCILIATION ---
 elif menu == "Utility Reconciliation":
@@ -248,20 +282,28 @@ elif menu == "Utility Reconciliation":
     u_type = st.selectbox("Select Utility to Reconcile", ["Electricity", "Water", "Internet"])
     
     paid = expenses[expenses['category'] == u_type]['amount'].sum() if not expenses.empty else 0
-    # Match the sub-meter category names
     search_term = u_type
     collected = tenant_payments[(tenant_payments['payment_type'] == 'Utility') & (tenant_payments['sub_category'].str.contains(search_term, case=False))]['amount'].sum() if not tenant_payments.empty else 0
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Main Bill Total", f"₱{paid:,.2f}")
     c2.metric("Total from Sub-meters", f"₱{collected:,.2f}")
-    c3.metric("Balance", f"₱{collected - paid:,.2f}", delta=float(collected - paid))
+    
+    gap = collected - paid
+    delta_color = "normal" if gap >= 0 else "inverse"
+    c3.metric("Profit/Loss Gap", f"₱{gap:,.2f}", delta=float(gap), delta_color=delta_color)
+    
+    if paid > 0:
+        st.write("### Recovery Progress Bar")
+        st.progress(min(collected / paid, 1.0))
+        st.caption(f"You have recovered {(collected/paid)*100:.1f}% of the building's {u_type} cost.")
 
 # --- SETTINGS ---
 elif menu == "Sync Settings":
-    st.subheader("⚙️ Settings")
-    if st.button("Refresh Cloud Data"):
+    st.subheader("⚙️ Cloud Synchronization")
+    if st.button("Manually Refresh Data"):
         st.cache_data.clear()
         st.rerun()
+    st.info("The app automatically syncs with your Aiven MySQL database.")
 
-st.caption("Amore Financial Cloud v1.7 | Instant Unit Sync")
+st.caption("Amore Financial Cloud v1.9 | Dashboard with Expense View")
