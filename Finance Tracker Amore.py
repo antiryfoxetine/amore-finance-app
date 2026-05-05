@@ -32,7 +32,7 @@ def init_db():
     conn = get_connection()
     if conn:
         cursor = conn.cursor()
-        # Table for Amore's main expenses
+        # Table for Amore's main expenses (Main Meter Bills)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,7 +42,7 @@ def init_db():
                 description TEXT
             )
         """)
-        # Table for payments made BY tenants
+        # Table for payments made BY tenants (Individual Sub-meter Readings)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenant_payments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -113,7 +113,7 @@ tenants, expenses, tenant_payments = fetch_data()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/619/619034.png", width=100)
     st.write(f"User: **Business Admin**")
-    menu = st.radio("Navigate", ["Dashboard", "Data Entry", "Utility Analysis", "Sync Settings"])
+    menu = st.radio("Navigate", ["Dashboard", "Data Entry", "Utility Reconciliation", "Sync Settings"])
     if st.button("Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
@@ -121,7 +121,7 @@ with st.sidebar:
 # --- DASHBOARD ---
 if menu == "Dashboard":
     if not tenants.empty:
-        # Revenue = Base Rent estimates + Total collected from utilities
+        # Base Rent Revenue + Utility Collections
         base_rent = len(tenants[tenants['status'] != 'Checked-out']) * 8500 
         utility_collected = tenant_payments['amount'].sum() if not tenant_payments.empty else 0
         total_rev = base_rent + utility_collected
@@ -145,22 +145,23 @@ if menu == "Dashboard":
                 fig = px.pie(expenses, values='amount', names='category', hole=0.4, color_discrete_sequence=['#507d00', '#88b04b', '#ffc107', '#6c757d'])
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Add data to see charts.")
+                st.info("Add bills to see charts.")
 
 # --- DATA ENTRY ---
 elif menu == "Data Entry":
-    tab1, tab2 = st.tabs(["🏠 Main Expenses (Amore Pays)", "👤 Tenant Utility Payments"])
+    tab1, tab2 = st.tabs(["⚡ Main Meter Bills (Amore Pays)", "🔢 Individual Meter Payments (Tenants)"])
     
     with tab1:
-        st.subheader("Enter Amore Monthly Bills")
+        st.write("### Record Master Utility Bills")
+        st.caption("Enter the total amount from the main electric/water meters.")
         with st.form("expense_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            category = col1.selectbox("Bill Category", ["Electricity", "Water", "Internet", "Maintenance", "Staff Salary", "Other"])
-            amount = col2.number_input("Amount (₱)", min_value=0.0, step=100.0)
-            bill_date = st.date_input("Billing Date")
-            description = st.text_area("Description")
+            category = col1.selectbox("Utility Type", ["Electricity", "Water", "Internet", "Maintenance", "Staff Salary"])
+            amount = col2.number_input("Total Main Bill (₱)", min_value=0.0, step=100.0)
+            bill_date = st.date_input("Billing Period Date")
+            description = st.text_area("Notes (e.g., 'May 2024 Main Meter')")
             
-            if st.form_submit_button("Save Bill"):
+            if st.form_submit_button("Save Main Bill"):
                 if amount > 0:
                     conn = get_connection()
                     if conn:
@@ -168,20 +169,18 @@ elif menu == "Data Entry":
                         cursor.execute("INSERT INTO expenses (category, amount, bill_date, description) VALUES (%s, %s, %s, %s)", 
                                      (category, amount, bill_date, description))
                         conn.commit(); conn.close()
-                        st.success(f"Saved bill: ₱{amount:,.2f}")
+                        st.success(f"Main {category} bill of ₱{amount:,.2f} recorded.")
                         st.rerun()
-                else: st.warning("Amount must be > 0")
 
     with tab2:
-        st.subheader("Record Utility Payment from Tenant")
+        st.write("### Record Tenant Meter Payments")
+        st.caption("Record individual payments based on unit sub-meter readings.")
         with st.form("payment_form", clear_on_submit=True):
-            # Try to get list of guests for selection
             guest_list = tenants['guest_name'].unique().tolist() if not tenants.empty else []
             col1, col2 = st.columns(2)
             
             if guest_list:
                 selected_guest = col1.selectbox("Select Tenant", guest_list)
-                # Find the unit for that guest
                 guess_unit = tenants[tenants['guest_name'] == selected_guest]['unit_room'].iloc[0]
             else:
                 selected_guest = col1.text_input("Tenant Name")
@@ -190,60 +189,59 @@ elif menu == "Data Entry":
             unit = col2.text_input("Unit/Room", value=guess_unit)
             
             p_col1, p_col2 = st.columns(2)
-            p_type = p_col1.selectbox("Utility Type", ["Electricity", "Water", "Internet", "Maintenance Fee", "Full Utility Package"])
-            p_amount = p_col2.number_input("Amount Paid (₱)", min_value=0.0, step=50.0)
-            p_date = st.date_input("Date Paid")
+            p_type = p_col1.selectbox("Utility Paid", ["Electricity", "Water", "Internet", "Maintenance Fee"])
+            p_amount = p_col2.number_input("Amount Collected (₱)", min_value=0.0, step=50.0)
+            p_date = st.date_input("Collection Date")
             
-            if st.form_submit_button("Save Tenant Payment"):
-                if p_amount > 0 and selected_guest:
+            if st.form_submit_button("Save Individual Payment"):
+                if p_amount > 0:
                     conn = get_connection()
                     if conn:
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO tenant_payments (guest_name, unit_room, utility_type, amount, payment_date) VALUES (%s, %s, %s, %s, %s)", 
                                      (selected_guest, unit, p_type, p_amount, p_date))
                         conn.commit(); conn.close()
-                        st.success(f"Payment of ₱{p_amount:,.2f} recorded for {selected_guest}")
+                        st.success(f"Individual payment of ₱{p_amount:,.2f} saved.")
                         st.rerun()
-                else: st.warning("Enter valid name and amount.")
 
-    st.divider()
-    st.subheader("📋 Recent Records")
-    r_col1, r_col2 = st.columns(2)
-    with r_col1:
-        st.caption("Latest Main Bills")
-        st.dataframe(expenses.tail(5), use_container_width=True, hide_index=True)
-    with r_col2:
-        st.caption("Latest Tenant Payments")
-        st.dataframe(tenant_payments.tail(5), use_container_width=True, hide_index=True)
-
-# --- UTILITY ANALYSIS ---
-elif menu == "Utility Analysis":
-    st.subheader("⚡ Utility Recovery Tracking")
+# --- UTILITY RECONCILIATION ---
+elif menu == "Utility Reconciliation":
+    st.subheader("⚖️ Master Meter vs. Individual Meters")
+    st.write("Compare your main bills against what was collected from tenants.")
     
-    u_type = st.selectbox("Select Utility to Analyze", ["Electricity", "Water", "Internet"])
+    u_type = st.selectbox("Analyze Recovery For:", ["Electricity", "Water", "Internet"])
     
-    # Calculate Paid (Amore) vs Collected (Tenants)
     total_paid = expenses[expenses['category'] == u_type]['amount'].sum() if not expenses.empty else 0
     total_collected = tenant_payments[tenant_payments['utility_type'].str.contains(u_type, case=False)]['amount'].sum() if not tenant_payments.empty else 0
     
     c1, c2, c3 = st.columns(3)
-    c1.metric(f"Total {u_type} Bills Paid", f"₱{total_paid:,.0f}")
-    c2.metric(f"Collected from Tenants", f"₱{total_collected:,.0f}")
+    c1.metric("Main Meter Bill (Total Paid)", f"₱{total_paid:,.0f}")
+    c2.metric("Unit Meters (Total Collected)", f"₱{total_collected:,.0f}")
     
     gap = total_collected - total_paid
-    c3.metric("Profit/Gap", f"₱{gap:,.0f}", delta=float(gap))
+    status_color = "normal" if gap >= 0 else "inverse"
+    c3.metric("Reconciliation Gap", f"₱{gap:,.0f}", delta=float(gap), delta_color=status_color)
+    
+    st.divider()
     
     if total_paid > 0:
-        st.write(f"Recovery Progress for {u_type}")
+        recovery_pct = (total_collected / total_paid) * 100
+        st.write(f"#### {u_type} Recovery Progress: {recovery_pct:.1f}%")
         st.progress(min(total_collected / total_paid, 1.0))
-        st.caption(f"You have recovered { (total_collected/total_paid)*100:.1f}% of your {u_type} costs.")
+        
+        if recovery_pct < 90:
+            st.warning(f"⚠️ Warning: Your {u_type} collections are significantly lower than the main bill. Check for leaks, common area usage, or unrecorded meter readings.")
+        elif recovery_pct >= 100:
+            st.success(f"✅ Success: Your {u_type} costs are fully covered by tenant sub-meters.")
+        else:
+            st.info(f"💡 You are covering ₱{abs(gap):,.0f} of the building's {u_type} costs.")
 
 # --- SETTINGS ---
 elif menu == "Sync Settings":
-    st.subheader("⚙️ System Status")
-    st.success(f"Database: {DB_CONFIG['host']}" if DB_CONFIG else "Running Offline/Local")
-    if st.button("Force Refresh All Data"):
+    st.subheader("⚙️ Cloud Configuration")
+    st.success(f"Linked to Aiven MySQL: {DB_CONFIG['host']}" if DB_CONFIG else "Running in Local Mode")
+    if st.button("Force Refresh All Cloud Data"):
         st.cache_data.clear()
         st.rerun()
 
-st.caption("Amore Financial Cloud v1.2")
+st.caption("Amore Financial Cloud v1.3 | Sub-meter Reconciliation Enabled")
