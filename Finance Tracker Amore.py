@@ -8,6 +8,10 @@ import os
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Amore Financial Cloud", layout="wide", page_icon="🏠")
 
+# --- BRANDING & LOGO ---
+# Ry, replace the link below with your actual "Raw" GitHub URL for the logo
+LOGO_URL = "https://raw.githubusercontent.com/Ry-Amore/finance-tracker/main/logo.png" 
+
 # --- DATABASE & AUTH CONFIGURATION ---
 try:
     DB_CONFIG = {
@@ -64,10 +68,16 @@ if "logged_in" not in st.session_state:
 if not st.session_state.logged_in:
     col_l1, col_l2, col_l3 = st.columns([1, 1, 1])
     with col_l2:
-        st.markdown("<h1 style='text-align: center;'>🏠</h1>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+        try:
+            st.image(LOGO_URL, width=120)
+        except:
+            st.markdown("<h1>🏠</h1>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
         st.markdown("""
             <div style="text-align: center; padding-bottom: 20px;">
-                <h1 style="color: #507d00; font-family: 'Segoe UI', sans-serif; margin-top: 0;">AMORE FINANCE</h1>
+                <h1 style="color: #507d00; font-family: 'Segoe UI', sans-serif; margin-top: 10px;">AMORE FINANCE</h1>
                 <p style="color: #666;">Secure Financial Portal</p>
             </div>
         """, unsafe_allow_html=True)
@@ -113,7 +123,11 @@ tenants, expenses_raw, tenant_payments_raw = fetch_data()
 
 # --- SIDEBAR & GLOBAL FILTERS ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/619/619034.png", width=100)
+    try:
+        st.image(LOGO_URL, width=150)
+    except:
+        st.image("https://cdn-icons-png.flaticon.com/512/619/619034.png", width=100)
+        
     st.write(f"User: **Business Admin**")
     
     st.divider()
@@ -363,4 +377,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear(); st.rerun()
     st.success(f"Aiven Database: Connected")
 
-st.caption("Amore Financial Cloud v2.7 | Tax Compliance & Visual Reporting Enabled")
+st.caption("Amore Financial Cloud v2.7 | Branding Sync Enabled")
