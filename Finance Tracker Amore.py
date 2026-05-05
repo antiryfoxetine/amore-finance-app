@@ -244,10 +244,10 @@ elif menu == "Data Entry":
 
 # --- REPORTS & EXPORT ---
 elif menu == "Reports & Export":
-    st.subheader("📥 Data & Visual Reports")
+    st.subheader("📥 Financial Data Reports")
     
     st.markdown("""
-        <div style="background-color: #f0f7f0; padding: 20px; border-radius: 12px; border: 1px solid #cce2cc;">
+        <div style="background-color: #f0f7f0; padding: 20px; border-radius: 12px; border: 1px solid #cce2cc; margin-bottom: 25px;">
             <h4 style="color: #507d00; margin-top: 0;">📸 How to Download Graphs</h4>
             <p style="font-size: 14px; color: #555;">Hover your mouse over any graph. A menu will appear in the top-right corner. Click the <b>Camera Icon</b> to save the graph as a PNG image for your records.</p>
         </div>
@@ -256,18 +256,35 @@ elif menu == "Reports & Export":
     st.divider()
     
     if not tenant_payments.empty or not expenses.empty:
-        # Master Ledger Export
-        df_in = tenant_payments[['payment_date', 'guest_name', 'sub_category', 'amount']].copy()
-        df_in['Type'] = 'Revenue (In)'
-        df_in.columns = ['Date', 'Entity', 'Category', 'Amount', 'Type']
-        df_out = expenses[['bill_date', 'category', 'amount']].copy()
-        df_out['Type'] = 'Expense (Out)'
-        df_out['Entity'] = 'Main Bill'
-        df_out.columns = ['Date', 'Category', 'Amount', 'Type', 'Entity']
-        master_df = pd.concat([df_in, df_out]).sort_values('Date', ascending=False)
+        # Master Ledger Export - Properly detailed for admin review
+        st.write("### ✨ Unified Master Ledger")
+        st.caption("A combined file of all income and expenses for complete audit and review.")
+        
+        # Prepare Revenue Data
+        df_in = tenant_payments[['payment_date', 'payment_type', 'sub_category', 'guest_name', 'unit_room', 'amount']].copy()
+        df_in['Transaction Type'] = 'INCOME'
+        df_in.columns = ['Date', 'Category', 'Description', 'Entity', 'Unit', 'Amount', 'Transaction Type']
+        
+        # Prepare Expense Data
+        df_out = expenses[['bill_date', 'category', 'amount', 'description']].copy()
+        df_out['Transaction Type'] = 'EXPENSE'
+        df_out['Entity'] = 'Amore Building'
+        df_out['Unit'] = 'Main Meter/Building'
+        df_out.columns = ['Date', 'Category', 'Amount', 'Description', 'Transaction Type', 'Entity', 'Unit']
+        
+        # Merge and align columns
+        master_df = pd.concat([df_in, df_out], ignore_index=True)
+        master_df = master_df[['Date', 'Transaction Type', 'Category', 'Entity', 'Unit', 'Amount', 'Description']]
+        master_df = master_df.sort_values('Date', ascending=False)
         
         csv_master = master_df.to_csv(index=False).encode('utf-8')
-        st.download_button("✨ DOWNLOAD UNIFIED MASTER LEDGER (CSV)", data=csv_master, file_name=f"amore_master_ledger_{datetime.now().strftime('%Y%m%d')}.csv", mime='text/csv', use_container_width=True)
+        st.download_button(
+            label="💾 DOWNLOAD FULL MASTER REPORT (CSV)",
+            data=csv_master,
+            file_name=f"amore_unified_ledger_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime='text/csv',
+            use_container_width=True
+        )
         st.dataframe(master_df.head(10), use_container_width=True, hide_index=True)
 
         st.divider()
@@ -320,4 +337,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear()
         st.rerun()
 
-st.caption("Amore Financial Cloud v2.4 | All Export Options Restored")
+st.caption("Amore Financial Cloud v2.5 | Proper Offline Reporting")
