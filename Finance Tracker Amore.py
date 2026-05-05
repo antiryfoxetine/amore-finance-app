@@ -92,7 +92,8 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- DATA FETCHING ---
+# --- DATA FETCHING (WITH CACHING TO FIX SLOWNESS) ---
+@st.cache_data(ttl=600)
 def fetch_data():
     conn = get_connection()
     if conn:
@@ -198,6 +199,7 @@ elif menu == "Data Entry":
                         cursor.execute("INSERT INTO expenses (category, amount, bill_date) VALUES (%s, %s, %s)", (category, amount, bill_date))
                         conn.commit(); conn.close()
                         st.success("Main bill saved.")
+                        st.cache_data.clear()
                         st.rerun()
 
     with tab_rent:
@@ -216,6 +218,7 @@ elif menu == "Data Entry":
                                      (selected_guest, unit, 'Rent', 'Monthly Rent', r_amount, r_date))
                         conn.commit(); conn.close()
                         st.success("Rent recorded.")
+                        st.cache_data.clear()
                         st.rerun()
 
     with tab_util:
@@ -236,6 +239,7 @@ elif menu == "Data Entry":
                                      (selected_guest_u, unit_u, 'Utility', p_type, p_amount, p_date))
                         conn.commit(); conn.close()
                         st.success("Utility payment saved.")
+                        st.cache_data.clear()
                         st.rerun()
 
 # --- REPORTS & EXPORT ---
@@ -265,6 +269,32 @@ elif menu == "Reports & Export":
         csv_master = master_df.to_csv(index=False).encode('utf-8')
         st.download_button("✨ DOWNLOAD UNIFIED MASTER LEDGER (CSV)", data=csv_master, file_name=f"amore_master_ledger_{datetime.now().strftime('%Y%m%d')}.csv", mime='text/csv', use_container_width=True)
         st.dataframe(master_df.head(10), use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # Re-adding individual downloads
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            st.write("#### 💰 Tenant Payments (Individual)")
+            csv_payments = tenant_payments.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Payment Records",
+                data=csv_payments,
+                file_name=f"amore_tenant_payments_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime='text/csv',
+                use_container_width=True
+            )
+            
+        with col_exp2:
+            st.write("#### 💸 Main Bills (Individual)")
+            csv_expenses = expenses.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Expense Records",
+                data=csv_expenses,
+                file_name=f"amore_expenses_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime='text/csv',
+                use_container_width=True
+            )
     else:
         st.info("No data available to export.")
 
@@ -290,4 +320,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear()
         st.rerun()
 
-st.caption("Amore Financial Cloud v2.2 | Downloadable Visuals Enabled")
+st.caption("Amore Financial Cloud v2.4 | All Export Options Restored")
