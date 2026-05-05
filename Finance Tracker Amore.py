@@ -116,7 +116,7 @@ tenants, expenses, tenant_payments = fetch_data()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/619/619034.png", width=100)
     st.write(f"User: **Business Admin**")
-    menu = st.radio("Navigate", ["Dashboard", "Data Entry", "Utility Reconciliation", "Sync Settings"])
+    menu = st.radio("Navigate", ["Dashboard", "Data Entry", "Utility Reconciliation", "Reports & Export", "Sync Settings"])
     if st.button("Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
@@ -325,6 +325,43 @@ elif menu == "Utility Reconciliation":
         st.progress(min(collected / paid, 1.0))
         st.caption(f"You have recovered {(collected/paid)*100:.1f}% of the building's {u_type} cost.")
 
+# --- REPORTS & EXPORT ---
+elif menu == "Reports & Export":
+    st.subheader("📥 Export Financial Records")
+    st.write("Download your data as CSV files for offline management or accounting.")
+    
+    col_exp1, col_exp2 = st.columns(2)
+    
+    with col_exp1:
+        st.write("#### 💰 Tenant Payments (Revenue)")
+        if not tenant_payments.empty:
+            csv_payments = tenant_payments.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Payment Records",
+                data=csv_payments,
+                file_name=f"amore_tenant_payments_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime='text/csv',
+                use_container_width=True
+            )
+            st.dataframe(tenant_payments.head(5), use_container_width=True)
+        else:
+            st.info("No payment records available to export.")
+            
+    with col_exp2:
+        st.write("#### 💸 Main Bills (Expenses)")
+        if not expenses.empty:
+            csv_expenses = expenses.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Expense Records",
+                data=csv_expenses,
+                file_name=f"amore_expenses_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime='text/csv',
+                use_container_width=True
+            )
+            st.dataframe(expenses.head(5), use_container_width=True)
+        else:
+            st.info("No expense records available to export.")
+
 # --- SETTINGS ---
 elif menu == "Sync Settings":
     st.subheader("⚙️ Cloud Synchronization")
@@ -333,4 +370,4 @@ elif menu == "Sync Settings":
         st.rerun()
     st.info("The app automatically syncs with your Aiven MySQL database.")
 
-st.caption("Amore Financial Cloud v1.9 | Dashboard with Financial Trend Graph")
+st.caption("Amore Financial Cloud v2.0 | Integrated Reports & Export")
