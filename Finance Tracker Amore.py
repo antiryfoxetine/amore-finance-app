@@ -9,8 +9,8 @@ import os
 st.set_page_config(page_title="Amore Financial Cloud", layout="wide", page_icon="🏠")
 
 # --- BRANDING & LOGO ---
-# Ry, replace the link below with your actual "Raw" GitHub URL for the logo
-LOGO_URL = "https://raw.githubusercontent.com/Ry-Amore/finance-tracker/main/logo.png" 
+# Corrected Raw URL based on your GitHub repository: antiryfoxetine/amore-finance-app
+LOGO_URL = "https://raw.githubusercontent.com/antiryfoxetine/amore-finance-app/main/logo.png" 
 
 # --- DATABASE & AUTH CONFIGURATION ---
 try:
@@ -70,7 +70,8 @@ if not st.session_state.logged_in:
     with col_l2:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
         try:
-            st.image(LOGO_URL, width=120)
+            # Displaying the logo from your GitHub
+            st.image(LOGO_URL, width=150)
         except:
             st.markdown("<h1>🏠</h1>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -97,7 +98,6 @@ st.markdown("""
     .main-header { background-color: #507d00; padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px; }
     .stMetric { background-color: white; padding: 15px; border-radius: 12px; border: 1px solid #f0f2f6; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     [data-testid="stSidebar"] { background-color: #f8fafc; }
-    .pnl-box { background-color: #ffffff; padding: 20px; border-radius: 10px; border-left: 5px solid #507d00; margin-bottom: 20px; }
     </style>
     <div class="main-header">
         <h1 style="margin:0;">AMORE FINANCIAL TRACKER</h1>
@@ -178,7 +178,7 @@ if menu == "Dashboard":
     st.divider()
     
     if tenant_payments.empty and expenses.empty:
-        st.info("No data found for the selected dates. Adjust the filter in the sidebar.")
+        st.info("No data found for the selected dates. Use the filter in the sidebar to adjust.")
     else:
         st.subheader("📈 Financial Performance Trend")
         if not tenant_payments.empty or not expenses.empty:
@@ -225,7 +225,7 @@ elif menu == "Data Entry":
                     conn = get_connection(); cur = conn.cursor()
                     cur.execute("INSERT INTO expenses (category, amount, bill_date) VALUES (%s, %s, %s)", (cat, amt, dt))
                     conn.commit(); conn.close()
-                    st.success("Bill saved to cloud!"); st.cache_data.clear(); st.rerun()
+                    st.success("Bill saved!"); st.cache_data.clear(); st.rerun()
 
     with tab_rent:
         st.write("### Record Tenant Rent")
@@ -241,7 +241,7 @@ elif menu == "Data Entry":
                     cur.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
                                  (sel_guest, u, 'Rent', 'Monthly Rent', amt, dt))
                     conn.commit(); conn.close()
-                    st.success("Rent payment saved!"); st.cache_data.clear(); st.rerun()
+                    st.success("Rent saved!"); st.cache_data.clear(); st.rerun()
 
     with tab_util:
         st.write("### Record Sub-meter Payments")
@@ -262,23 +262,20 @@ elif menu == "Data Entry":
 
     st.divider()
     st.subheader("🗑️ Record Management (Admin)")
-    st.caption("Click the trash icon to delete specific incorrect entries.")
     col_del1, col_del2 = st.columns(2)
-    
     with col_del1:
         st.write("#### Recent Payments")
         if not tenant_payments.empty:
             for idx, row in tenant_payments.tail(5).iterrows():
-                if st.button(f"🗑️ {row['guest_name']} (₱{row['amount']})", key=f"del_pay_{row['id']}", use_container_width=True):
+                if st.button(f"🗑️ {row['guest_name']} (₱{row['amount']})", key=f"del_p_{row['id']}", use_container_width=True):
                     conn = get_connection(); cur = conn.cursor()
                     cur.execute("DELETE FROM tenant_payments WHERE id=%s", (row['id'],))
                     conn.commit(); conn.close(); st.cache_data.clear(); st.rerun()
-                    
     with col_del2:
         st.write("#### Recent Bills")
         if not expenses.empty:
             for idx, row in expenses.tail(5).iterrows():
-                if st.button(f"🗑️ {row['category']} (₱{row['amount']})", key=f"del_exp_{row['id']}", use_container_width=True):
+                if st.button(f"🗑️ {row['category']} (₱{row['amount']})", key=f"del_e_{row['id']}", use_container_width=True):
                     conn = get_connection(); cur = conn.cursor()
                     cur.execute("DELETE FROM expenses WHERE id=%s", (row['id'],))
                     conn.commit(); conn.close(); st.cache_data.clear(); st.rerun()
@@ -287,94 +284,58 @@ elif menu == "Data Entry":
 elif menu == "Reports & Export":
     st.subheader("📥 Financial Data Reports")
     
-    st.markdown("""
-        <div style="background-color: #f0f7f0; padding: 20px; border-radius: 12px; border: 1px solid #cce2cc; margin-bottom: 25px;">
-            <h4 style="color: #507d00; margin-top: 0;">📸 Pro Tip: Graph Downloads</h4>
-            <p style="font-size: 14px; color: #555;">Hover over any graph and click the <b>Camera Icon</b> to save it as a high-quality image for your presentations.</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
     if not tenant_payments.empty or not expenses.empty:
-        # 1. Profit & Loss Statement (Structured)
+        # P&L Summary
         st.write("### 📄 Profit & Loss Statement")
-        st.caption(f"Summary for period: {start_date} to {end_date}")
-        
-        # Calculate Summaries
         p_rent = tenant_payments[tenant_payments['payment_type'] == 'Rent']['amount'].sum()
         p_util = tenant_payments[tenant_payments['payment_type'] == 'Utility']['amount'].sum()
         total_income = p_rent + p_util
+        exp_sum = expenses.groupby('category')['amount'].sum().reset_index()
+        total_exp = exp_sum['amount'].sum()
         
-        # Group expenses by category
-        exp_summary = expenses.groupby('category')['amount'].sum().reset_index()
-        total_exp = exp_summary['amount'].sum()
-        
-        # Create P&L Table
-        pnl_rows = [
-            {'Line Item': 'Total Rental Income', 'Amount': p_rent, 'Type': 'Revenue'},
-            {'Line Item': 'Total Utility Recovery', 'Amount': p_util, 'Type': 'Revenue'},
-            {'Line Item': 'TOTAL GROSS REVENUE', 'Amount': total_income, 'Type': 'Revenue Total'}
+        pnl_data = [
+            {'Line Item': 'Rental Income', 'Amount': p_rent},
+            {'Line Item': 'Utility Recovery', 'Amount': p_util},
+            {'Line Item': 'GROSS REVENUE', 'Amount': total_income},
+            {'Line Item': 'TOTAL EXPENSES', 'Amount': -total_exp},
+            {'Line Item': 'NET PROFIT', 'Amount': total_income - total_exp}
         ]
-        
-        for _, row in exp_summary.iterrows():
-            pnl_rows.append({'Line Item': f"Expense: {row['category']}", 'Amount': -row['amount'], 'Type': 'Expense'})
-        
-        pnl_rows.append({'Line Item': 'TOTAL OPERATING EXPENSES', 'Amount': -total_exp, 'Type': 'Expense Total'})
-        pnl_rows.append({'Line Item': 'NET OPERATING PROFIT', 'Amount': total_income - total_exp, 'Type': 'Bottom Line'})
-        
-        pnl_df = pd.DataFrame(pnl_rows)
-        st.table(pnl_df[['Line Item', 'Amount']])
-        
-        csv_pnl = pnl_df.to_csv(index=False).encode('utf-8')
-        st.download_button("💾 DOWNLOAD P&L SUMMARY (CSV)", csv_pnl, f"amore_pnl_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+        st.table(pd.DataFrame(pnl_data))
 
         st.divider()
-        
-        # 2. Unified Master Ledger
-        st.write("### ✨ Unified Master Ledger")
-        st.caption("Detailed transaction history for admin audit.")
-        
-        df_in = tenant_payments[['payment_date', 'guest_name', 'sub_category', 'unit_room', 'amount']].copy()
-        df_in['Transaction Type'] = 'INCOME'
-        df_in.columns = ['Date', 'Entity', 'Category', 'Unit', 'Amount', 'Transaction Type']
-        
+        st.write("### ✨ Master Ledger Export")
+        df_in = tenant_payments[['payment_date', 'guest_name', 'sub_category', 'amount']].copy()
+        df_in['Type'] = 'INCOME'
         df_out = expenses[['bill_date', 'category', 'amount']].copy()
-        df_out['Transaction Type'] = 'EXPENSE'
-        df_out['Entity'] = 'Amore Building'
-        df_out['Unit'] = 'Main'
-        df_out.columns = ['Date', 'Category', 'Amount', 'Transaction Type', 'Entity', 'Unit']
-        
-        master = pd.concat([df_in, df_out], ignore_index=True)
-        master = master[['Date', 'Transaction Type', 'Category', 'Entity', 'Unit', 'Amount']]
-        master = master.sort_values('Date', ascending=False)
+        df_out['Type'] = 'EXPENSE'
+        df_out.columns = ['Date', 'Category', 'Amount', 'Type']
+        df_in.columns = ['Date', 'Entity', 'Category', 'Amount', 'Type']
+        master = pd.concat([df_in, df_out]).sort_values('Date', ascending=False)
         
         st.download_button("💾 DOWNLOAD MASTER REPORT (CSV)", master.to_csv(index=False).encode('utf-8'), 
-                           f"amore_master_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
-        st.dataframe(master, use_container_width=True, hide_index=True)
+                           f"amore_master_ledger_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
     else:
-        st.info("No data in current date range to export.")
+        st.info("No records found to export.")
 
 # --- UTILITY RECONCILIATION ---
 elif menu == "Utility Reconciliation":
     st.subheader("⚖️ Master Meter vs. Individual Meters")
-    u_type = st.selectbox("Choose Utility", ["Electricity", "Water", "Internet"])
+    u_type = st.selectbox("Select Utility", ["Electricity", "Water", "Internet"])
     p = expenses[expenses['category'] == u_type]['amount'].sum() if not expenses.empty else 0
     c = tenant_payments[(tenant_payments['payment_type'] == 'Utility') & (tenant_payments['sub_category'].str.contains(u_type, case=False))]['amount'].sum() if not tenant_payments.empty else 0
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Main Bill Total", f"₱{p:,.2f}")
-    col2.metric("Individual Total", f"₱{c:,.2f}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Main Bill Total", f"₱{p:,.2f}")
+    c2.metric("Individual Total", f"₱{c:,.2f}")
     gap = c - p
-    col3.metric("Balance Gap", f"₱{gap:,.2f}", delta=float(gap), delta_color="normal" if gap >= 0 else "inverse")
-    
-    if p > 0:
-        st.progress(min(c / p, 1.0))
-        st.caption(f"Recovery: {(c/p)*100:.1f}%")
+    c3.metric("Balance Gap", f"₱{gap:,.2f}", delta=float(gap), delta_color="normal" if gap >= 0 else "inverse")
+    if p > 0: st.progress(min(c/p, 1.0))
 
 # --- SETTINGS ---
 elif menu == "Sync Settings":
     st.subheader("⚙️ System Sync")
-    if st.button("Manual Cache Refresh", use_container_width=True):
+    if st.button("Refresh Cache"):
         st.cache_data.clear(); st.rerun()
-    st.success(f"Aiven Database: Connected")
+    st.success("Aiven Database: Connected")
 
-st.caption("Amore Financial Cloud v2.7 | Branding Sync Enabled")
+st.caption("Amore Financial Cloud v2.7 | Proper Python Branding Sync")
