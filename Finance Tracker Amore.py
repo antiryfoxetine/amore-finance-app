@@ -133,8 +133,9 @@ with st.sidebar:
     st.divider()
     st.subheader("📅 Global Date Filter")
     today = date.today()
-    start_of_month = today.replace(day=1)
-    date_range = st.date_input("Filter Period", [start_of_month, today])
+    # Set the range to 1 year ago from today
+    one_year_ago = today - timedelta(days=365)
+    date_range = st.date_input("Filter Period", [one_year_ago, today])
     
     st.divider()
     menu = st.radio("Navigate", ["Dashboard", "Data Entry", "Utility Reconciliation", "Reports & Export", "Sync Settings"])
