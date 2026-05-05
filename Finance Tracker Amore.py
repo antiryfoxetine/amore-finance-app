@@ -32,7 +32,6 @@ def init_db():
     conn = get_connection()
     if conn:
         cursor = conn.cursor()
-        # Expenses table for building costs
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,7 +41,6 @@ def init_db():
                 description TEXT
             )
         """)
-        # Unified payments table for Rent and Utilities
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenant_payments (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -89,6 +87,7 @@ st.markdown("""
     .main-header { background-color: #507d00; padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px; }
     .stMetric { background-color: white; padding: 15px; border-radius: 12px; border: 1px solid #f0f2f6; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     [data-testid="stSidebar"] { background-color: #f8fafc; }
+    .pnl-box { background-color: #ffffff; padding: 20px; border-radius: 10px; border-left: 5px solid #507d00; margin-bottom: 20px; }
     </style>
     <div class="main-header">
         <h1 style="margin:0;">AMORE FINANCIAL TRACKER</h1>
@@ -121,7 +120,6 @@ with st.sidebar:
     st.subheader("📅 Global Date Filter")
     today = date.today()
     start_of_month = today.replace(day=1)
-    # Allows selection of a range for focused reporting
     date_range = st.date_input("Filter Period", [start_of_month, today])
     
     st.divider()
@@ -273,28 +271,70 @@ elif menu == "Data Entry":
 
 # --- REPORTS & EXPORT ---
 elif menu == "Reports & Export":
-    st.subheader("📥 Export Financial Records")
+    st.subheader("📥 Financial Data Reports")
+    
+    st.markdown("""
+        <div style="background-color: #f0f7f0; padding: 20px; border-radius: 12px; border: 1px solid #cce2cc; margin-bottom: 25px;">
+            <h4 style="color: #507d00; margin-top: 0;">📸 Pro Tip: Graph Downloads</h4>
+            <p style="font-size: 14px; color: #555;">Hover over any graph and click the <b>Camera Icon</b> to save it as a high-quality image for your presentations.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
     if not tenant_payments.empty or not expenses.empty:
-        # Prepare Unified Master Ledger
+        # 1. Profit & Loss Statement (Structured)
+        st.write("### 📄 Profit & Loss Statement")
+        st.caption(f"Summary for period: {start_date} to {end_date}")
+        
+        # Calculate Summaries
+        p_rent = tenant_payments[tenant_payments['payment_type'] == 'Rent']['amount'].sum()
+        p_util = tenant_payments[tenant_payments['payment_type'] == 'Utility']['amount'].sum()
+        total_income = p_rent + p_util
+        
+        # Group expenses by category
+        exp_summary = expenses.groupby('category')['amount'].sum().reset_index()
+        total_exp = exp_summary['amount'].sum()
+        
+        # Create P&L Table
+        pnl_rows = [
+            {'Line Item': 'Total Rental Income', 'Amount': p_rent, 'Type': 'Revenue'},
+            {'Line Item': 'Total Utility Recovery', 'Amount': p_util, 'Type': 'Revenue'},
+            {'Line Item': 'TOTAL GROSS REVENUE', 'Amount': total_income, 'Type': 'Revenue Total'}
+        ]
+        
+        for _, row in exp_summary.iterrows():
+            pnl_rows.append({'Line Item': f"Expense: {row['category']}", 'Amount': -row['amount'], 'Type': 'Expense'})
+        
+        pnl_rows.append({'Line Item': 'TOTAL OPERATING EXPENSES', 'Amount': -total_exp, 'Type': 'Expense Total'})
+        pnl_rows.append({'Line Item': 'NET OPERATING PROFIT', 'Amount': total_income - total_exp, 'Type': 'Bottom Line'})
+        
+        pnl_df = pd.DataFrame(pnl_rows)
+        st.table(pnl_df[['Line Item', 'Amount']])
+        
+        csv_pnl = pnl_df.to_csv(index=False).encode('utf-8')
+        st.download_button("💾 DOWNLOAD P&L SUMMARY (CSV)", csv_pnl, f"amore_pnl_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+
+        st.divider()
+        
+        # 2. Unified Master Ledger
+        st.write("### ✨ Unified Master Ledger")
+        st.caption("Detailed transaction history for admin audit.")
+        
         df_in = tenant_payments[['payment_date', 'guest_name', 'sub_category', 'unit_room', 'amount']].copy()
-        df_in['Type'] = 'REVENUE (IN)'
-        df_in.columns = ['Date', 'Entity/Guest', 'Category', 'Unit', 'Amount', 'Transaction Type']
+        df_in['Transaction Type'] = 'INCOME'
+        df_in.columns = ['Date', 'Entity', 'Category', 'Unit', 'Amount', 'Transaction Type']
         
         df_out = expenses[['bill_date', 'category', 'amount']].copy()
-        df_out['Type'] = 'EXPENSE (OUT)'
+        df_out['Transaction Type'] = 'EXPENSE'
         df_out['Entity'] = 'Amore Building'
         df_out['Unit'] = 'Main'
-        df_out.columns = ['Date', 'Category', 'Amount', 'Transaction Type', 'Entity/Guest', 'Unit']
+        df_out.columns = ['Date', 'Category', 'Amount', 'Transaction Type', 'Entity', 'Unit']
         
         master = pd.concat([df_in, df_out], ignore_index=True)
-        master = master[['Date', 'Transaction Type', 'Category', 'Entity/Guest', 'Unit', 'Amount']]
+        master = master[['Date', 'Transaction Type', 'Category', 'Entity', 'Unit', 'Amount']]
         master = master.sort_values('Date', ascending=False)
         
-        st.write("### ✨ Unified Master Ledger")
-        st.caption("A combined offline file for admin audit and review.")
         st.download_button("💾 DOWNLOAD MASTER REPORT (CSV)", master.to_csv(index=False).encode('utf-8'), 
-                           f"amore_master_finance_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+                           f"amore_master_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
         st.dataframe(master, use_container_width=True, hide_index=True)
     else:
         st.info("No data in current date range to export.")
@@ -323,4 +363,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear(); st.rerun()
     st.success(f"Aiven Database: Connected")
 
-st.caption("Amore Financial Cloud v2.6 | Admin Pro Version")
+st.caption("Amore Financial Cloud v2.7 | Tax Compliance & Visual Reporting Enabled")
