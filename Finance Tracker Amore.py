@@ -143,6 +143,33 @@ if menu == "Dashboard":
     if tenants.empty and tenant_payments.empty and expenses.empty:
         st.info("No data yet. Head over to the 'Data Entry' tab to get started.")
     else:
+        # Financial Performance Graph (Time Series)
+        st.subheader("📈 Financial Performance Trend")
+        
+        # Prepare data for time series
+        if not tenant_payments.empty or not expenses.empty:
+            rev_ts = tenant_payments.copy()
+            rev_ts['date'] = pd.to_datetime(rev_ts['payment_date']).dt.to_period('M').dt.to_timestamp()
+            rev_monthly = rev_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Revenue'})
+            
+            exp_ts = expenses.copy()
+            exp_ts['date'] = pd.to_datetime(exp_ts['bill_date']).dt.to_period('M').dt.to_timestamp()
+            exp_monthly = exp_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Expenses'})
+            
+            performance_df = pd.merge(rev_monthly, exp_monthly, on='date', how='outer').fillna(0)
+            performance_df = performance_df.sort_values('date')
+            
+            fig_perf = px.line(performance_df, x='date', y=['Revenue', 'Expenses'], 
+                               labels={'value': 'Amount (₱)', 'date': 'Month'},
+                               color_discrete_map={'Revenue': '#507d00', 'Expenses': '#f44336'},
+                               markers=True)
+            fig_perf.update_layout(hovermode="x unified")
+            st.plotly_chart(fig_perf, use_container_width=True)
+        else:
+            st.info("Not enough data to generate trend graph.")
+
+        st.divider()
+
         # Top Row: Charts
         col_rev, col_exp_pie = st.columns([1, 1])
         with col_rev:
@@ -306,4 +333,4 @@ elif menu == "Sync Settings":
         st.rerun()
     st.info("The app automatically syncs with your Aiven MySQL database.")
 
-st.caption("Amore Financial Cloud v1.9 | Dashboard with Expense View")
+st.caption("Amore Financial Cloud v1.9 | Dashboard with Financial Trend Graph")
