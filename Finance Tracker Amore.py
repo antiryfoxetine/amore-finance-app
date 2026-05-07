@@ -9,6 +9,7 @@ import os
 st.set_page_config(page_title="Amore Financial Cloud", layout="wide", page_icon="🏠")
 
 # --- BRANDING & LOGO ---
+# Using the verified raw URL from your GitHub repository
 LOGO_URL = "https://raw.githubusercontent.com/antiryfoxetine/amore-finance-app/main/logo.png" 
 
 # --- DATABASE & AUTH CONFIGURATION ---
@@ -39,6 +40,7 @@ def init_db():
     if conn:
         try:
             cursor = conn.cursor()
+            # 1. Main Expenses Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS expenses (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,6 +50,8 @@ def init_db():
                     description TEXT
                 )
             """)
+            
+            # 2. Tenant Payments Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tenant_payments (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -59,6 +63,14 @@ def init_db():
                     payment_date DATE
                 )
             """)
+
+            # 3. Schema Auto-Fix: Ensure 'unit_room' exists in tenant_payments 
+            # (Fixes the ProgrammingError if the table was created old)
+            cursor.execute("SHOW COLUMNS FROM tenant_payments LIKE 'unit_room'")
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE tenant_payments ADD COLUMN unit_room VARCHAR(50) AFTER guest_name")
+
+            # 4. Bookings Table (Synced from Booking App)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS bookings (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -69,7 +81,7 @@ def init_db():
             """)
             conn.commit()
         except Exception as e:
-            st.error(f"Database Table Error: {e}")
+            st.error(f"Database Sync Error: {e}")
         finally:
             conn.close()
 
@@ -117,7 +129,7 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- DATA FETCHING ---
+# --- DATA FETCHING (CACHED) ---
 @st.cache_data(ttl=600)
 def fetch_data():
     conn = get_connection()
@@ -153,6 +165,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.rerun()
 
+# Apply Filters
 expenses = expenses_raw.copy()
 tenant_payments = tenant_payments_raw.copy()
 
@@ -173,7 +186,7 @@ CHART_CONFIG = {
 # --- DASHBOARD ---
 if menu == "Dashboard":
     if tenants.empty and expenses_raw.empty and tenant_payments_raw.empty:
-        st.warning("⚠️ Database connection failed or empty.")
+        st.warning("⚠️ Waiting for database sync or first entries.")
     
     rent_total = tenant_payments[tenant_payments['payment_type'] == 'Rent']['amount'].sum() if not tenant_payments.empty else 0
     util_total = tenant_payments[tenant_payments['payment_type'] == 'Utility']['amount'].sum() if not tenant_payments.empty else 0
@@ -188,20 +201,18 @@ if menu == "Dashboard":
     st.divider()
     
     if tenant_payments.empty and expenses.empty:
-        st.info("No data found for the selected dates.")
+        st.info("No data for these dates.")
     else:
-        st.subheader("📈 Financial Performance Trend")
-        if not tenant_payments.empty or not expenses.empty:
-            rev_ts = tenant_payments.copy()
-            rev_ts['date'] = pd.to_datetime(rev_ts['payment_date'])
-            rev_daily = rev_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Revenue'})
-            exp_ts = expenses.copy()
-            exp_ts['date'] = pd.to_datetime(exp_ts['bill_date'])
-            exp_daily = exp_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Expenses'})
-            perf_df = pd.merge(rev_daily, exp_daily, on='date', how='outer').fillna(0).sort_values('date')
-            fig_perf = px.line(perf_df, x='date', y=['Revenue', 'Expenses'], 
-                               color_discrete_map={'Revenue': '#507d00', 'Expenses': '#f44336'}, markers=True)
-            st.plotly_chart(fig_perf, use_container_width=True, config=CHART_CONFIG)
+        st.subheader("📈 Performance Trend")
+        rev_ts = tenant_payments.copy()
+        rev_ts['date'] = pd.to_datetime(rev_ts['payment_date'])
+        rev_daily = rev_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Revenue'})
+        exp_ts = expenses.copy()
+        exp_ts['date'] = pd.to_datetime(exp_ts['bill_date'])
+        exp_daily = exp_ts.groupby('date')['amount'].sum().reset_index().rename(columns={'amount': 'Expenses'})
+        perf_df = pd.merge(rev_daily, exp_daily, on='date', how='outer').fillna(0).sort_values('date')
+        fig_perf = px.line(perf_df, x='date', y=['Revenue', 'Expenses'], color_discrete_map={'Revenue': '#507d00', 'Expenses': '#f44336'}, markers=True)
+        st.plotly_chart(fig_perf, use_container_width=True, config=CHART_CONFIG)
 
 # --- DATA ENTRY ---
 elif menu == "Data Entry":
@@ -212,64 +223,64 @@ elif menu == "Data Entry":
     with tab_exp:
         with st.form("expense_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            cat = c1.selectbox("Type", ["Electricity", "Water", "Internet", "Maintenance", "Staff Salary"])
-            amt = c2.number_input("Amount (₱)", min_value=0.0)
-            dt = st.date_input("Date")
+            cat = c1.selectbox("Type", ["Electricity", "Water", "Internet", "Maintenance", "Staff Salary"], key="main_cat")
+            amt = c2.number_input("Amount (₱)", min_value=0.0, key="main_amt")
+            dt = st.date_input("Date", key="main_dt")
             if st.form_submit_button("Save Bill"):
                 if amt > 0:
                     conn = get_connection()
                     if conn:
                         cur = conn.cursor()
                         cur.execute("INSERT INTO expenses (category, amount, bill_date) VALUES (%s, %s, %s)", (cat, amt, dt))
-                        conn.commit(); conn.close(); st.success("Bill saved!"); st.cache_data.clear(); st.rerun()
+                        conn.commit(); conn.close(); st.success("Saved!"); st.cache_data.clear(); st.rerun()
 
     with tab_rent:
         sel_guest = st.selectbox("Guest", ["-- Select Guest --"] + guest_names, key="r_sel")
         unit_lookup = str(active_residents[active_residents['guest_name'] == sel_guest].iloc[-1]['unit_room']) if sel_guest != "-- Select Guest --" else ""
         with st.form("rent_form", clear_on_submit=True):
             u = st.text_input("Unit", value=unit_lookup, key=f"u_r_{sel_guest}")
-            amt = st.number_input("Rent (₱)", min_value=0.0)
-            dt = st.date_input("Date")
+            amt_r = st.number_input("Rent (₱)", min_value=0.0, key="rent_amt")
+            dt_r = st.date_input("Date", key="rent_dt")
             if st.form_submit_button("Save Rent"):
-                if amt > 0 and sel_guest != "-- Select Guest --":
+                if amt_r > 0 and sel_guest != "-- Select Guest --":
                     conn = get_connection()
                     if conn:
                         cur = conn.cursor()
                         cur.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
-                                     (sel_guest, u, 'Rent', 'Monthly Rent', amt, dt))
-                        conn.commit(); conn.close(); st.success("Rent saved!"); st.cache_data.clear(); st.rerun()
+                                     (sel_guest, u, 'Rent', 'Monthly Rent', amt_r, dt_r))
+                        conn.commit(); conn.close(); st.success("Saved!"); st.cache_data.clear(); st.rerun()
 
     with tab_util:
         sel_guest_u = st.selectbox("Guest", ["-- Select Guest --"] + guest_names, key="u_sel")
         unit_lookup_u = str(active_residents[active_residents['guest_name'] == sel_guest_u].iloc[-1]['unit_room']) if sel_guest_u != "-- Select Guest --" else ""
         with st.form("util_form", clear_on_submit=True):
             u_u = st.text_input("Unit", value=unit_lookup_u, key=f"u_u_{sel_guest_u}")
-            p_cat = st.selectbox("Utility", ["Electricity (Sub-meter)", "Water (Sub-meter)", "Internet", "Maintenance Fee"])
-            amt = st.number_input("Amount (₱)", min_value=0.0)
-            dt = st.date_input("Date")
+            p_cat = st.selectbox("Utility Type", ["Electricity (Sub-meter)", "Water (Sub-meter)", "Internet", "Maintenance Fee"], key="util_cat")
+            amt_u = st.number_input("Amount (₱)", min_value=0.0, key="util_amt")
+            dt_u = st.date_input("Date", key="util_dt")
             if st.form_submit_button("Save Utility"):
-                if amt > 0 and sel_guest_u != "-- Select Guest --":
+                if amt_u > 0 and sel_guest_u != "-- Select Guest --":
                     conn = get_connection()
                     if conn:
                         cur = conn.cursor()
                         cur.execute("INSERT INTO tenant_payments (guest_name, unit_room, payment_type, sub_category, amount, payment_date) VALUES (%s, %s, %s, %s, %s, %s)", 
-                                     (sel_guest_u, u_u, 'Utility', p_cat, amt, dt))
-                        conn.commit(); conn.close(); st.success("Utility recorded!"); st.cache_data.clear(); st.rerun()
+                                     (sel_guest_u, u_u, 'Utility', p_cat, amt_u, dt_u))
+                        conn.commit(); conn.close(); st.success("Saved!"); st.cache_data.clear(); st.rerun()
 
     st.divider()
     st.subheader("⚙️ Record Management (Admin)")
     col_del1, col_del2 = st.columns(2)
     
     with col_del1:
-        st.write("#### 💰 Payments Log")
+        st.write("#### 💰 Recent Payments")
         if not tenant_payments.empty:
             for idx, row in tenant_payments.tail(5).iterrows():
                 c_edit, c_del = st.columns([4, 1])
                 with c_edit:
                     with st.popover(f"📝 {row['guest_name']} - ₱{row['amount']}", use_container_width=True):
-                        st.write("Edit Payment Details")
-                        new_amt = st.number_input("Amount", value=float(row['amount']), key=f"edit_p_amt_{row['id']}")
-                        new_date = st.date_input("Date", value=row['payment_date'], key=f"edit_p_dt_{row['id']}")
+                        st.write("Edit Details")
+                        new_amt = st.number_input("New Amount", value=float(row['amount']), key=f"edit_p_amt_{row['id']}")
+                        new_date = st.date_input("New Date", value=row['payment_date'], key=f"edit_p_dt_{row['id']}")
                         if st.button("Update Payment", key=f"btn_p_{row['id']}"):
                             conn = get_connection(); cur = conn.cursor()
                             cur.execute("UPDATE tenant_payments SET amount=%s, payment_date=%s WHERE id=%s", (new_amt, new_date, row['id']))
@@ -281,19 +292,18 @@ elif menu == "Data Entry":
                         conn.commit(); conn.close(); st.cache_data.clear(); st.rerun()
     
     with col_del2:
-        st.write("#### ⚡ Main Bills Log")
+        st.write("#### ⚡ Recent Main Bills")
         if not expenses.empty:
             for idx, row in expenses.tail(5).iterrows():
                 c_edit, c_del = st.columns([4, 1])
                 with c_edit:
                     with st.popover(f"📝 {row['category']} - ₱{row['amount']}", use_container_width=True):
-                        st.write("Edit Bill Details")
-                        new_cat = st.selectbox("Type", ["Electricity", "Water", "Internet", "Maintenance", "Staff Salary"], index=["Electricity", "Water", "Internet", "Maintenance", "Staff Salary"].index(row['category']), key=f"edit_e_cat_{row['id']}")
-                        new_amt = st.number_input("Amount", value=float(row['amount']), key=f"edit_e_amt_{row['id']}")
-                        new_date = st.date_input("Date", value=row['bill_date'], key=f"edit_e_dt_{row['id']}")
+                        st.write("Edit Details")
+                        new_amt = st.number_input("New Amount", value=float(row['amount']), key=f"edit_e_amt_{row['id']}")
+                        new_date = st.date_input("New Date", value=row['bill_date'], key=f"edit_e_dt_{row['id']}")
                         if st.button("Update Bill", key=f"btn_e_{row['id']}"):
                             conn = get_connection(); cur = conn.cursor()
-                            cur.execute("UPDATE expenses SET category=%s, amount=%s, bill_date=%s WHERE id=%s", (new_cat, new_amt, new_date, row['id']))
+                            cur.execute("UPDATE expenses SET amount=%s, bill_date=%s WHERE id=%s", (new_amt, new_date, row['id']))
                             conn.commit(); conn.close(); st.cache_data.clear(); st.rerun()
                 with c_del:
                     if st.button("🗑️", key=f"del_e_{row['id']}"):
@@ -310,7 +320,7 @@ elif menu == "Reports & Export":
         total_income = p_rent + p_util
         exp_summary = expenses.groupby('category')['amount'].sum().reset_index()
         total_exp = exp_summary['amount'].sum()
-        st.write("#### 📄 Monthly Profit & Loss Summary")
+        st.write("#### 📄 Profit & Loss Summary")
         pnl_df = pd.DataFrame([
             {'Item': 'Rental Income', 'Amount': p_rent},
             {'Item': 'Utility Recovery', 'Amount': p_util},
@@ -320,7 +330,6 @@ elif menu == "Reports & Export":
         ])
         st.table(pnl_df)
         st.divider()
-        st.write("#### ✨ Master Ledger Download")
         df_in = tenant_payments[['payment_date', 'guest_name', 'sub_category', 'amount']].copy()
         df_in['Type'] = 'INCOME'
         df_out = expenses[['bill_date', 'category', 'amount']].copy()
@@ -328,8 +337,7 @@ elif menu == "Reports & Export":
         df_out.columns = ['Date', 'Category', 'Amount', 'Type']
         df_in.columns = ['Date', 'Entity', 'Category', 'Amount', 'Type']
         master = pd.concat([df_in, df_out]).sort_values('Date', ascending=False)
-        st.download_button("💾 DOWNLOAD MASTER REPORT (CSV)", master.to_csv(index=False).encode('utf-8'), 
-                           f"amore_master_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+        st.download_button("💾 DOWNLOAD MASTER REPORT (CSV)", master.to_csv(index=False).encode('utf-8'), f"amore_master_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
     else:
         st.info("No data available.")
 
@@ -350,4 +358,4 @@ elif menu == "Sync Settings":
         st.cache_data.clear(); st.rerun()
     st.info("Database: Aiven MySQL Online")
 
-st.caption("Amore Financial Cloud v2.9 | Edit Records Feature Enabled")
+st.caption("Amore Financial Cloud v3.0 | Schema Sync & Unique Keys Enabled")
